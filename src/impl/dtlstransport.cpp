@@ -391,6 +391,12 @@ DtlsTransport::DtlsTransport(shared_ptr<IceTransport> lower, certificate_ptr cer
 		SSL_CTX_set_options(mCtx, SSL_OP_NO_SSLv3 | SSL_OP_NO_COMPRESSION | SSL_OP_NO_QUERY_MTU |
 		                              SSL_OP_NO_RENEGOTIATION);
 
+		if (SSL_CTX_set_tlsext_use_srtp(mCtx, "SRTP_AES128_CM_SHA1_80:SRTP_AEAD_AES_128_GCM:SRTP_AEAD_AES_256_GCM")!=0) {
+			// RFC 8827: The DTLS-SRTP protection profile SRTP_AES128_CM_HMAC_SHA1_80 MUST be supported
+			// See https://www.rfc-editor.org/rfc/rfc8827.html#section-6.5 Warning:
+			// SSL_set_tlsext_use_srtp() returns 0 on success and 1 on error
+			SSL_CTX_set_tlsext_use_srtp(mCtx, "SRTP_AES128_CM_SHA1_80");
+		}
 		SSL_CTX_set_min_proto_version(mCtx, DTLS1_VERSION);
 		SSL_CTX_set_read_ahead(mCtx, 1);
 		SSL_CTX_set_quiet_shutdown(mCtx, 1);
@@ -434,13 +440,14 @@ DtlsTransport::DtlsTransport(shared_ptr<IceTransport> lower, certificate_ptr cer
 		SSL_set_options(mSsl, SSL_OP_SINGLE_ECDH_USE);
 		SSL_set_tmp_ecdh(mSsl, ecdh.get());
 
-		// RFC 8827: The DTLS-SRTP protection profile SRTP_AES128_CM_HMAC_SHA1_80 MUST be supported
-		// See https://www.rfc-editor.org/rfc/rfc8827.html#section-6.5 Warning:
-		// SSL_set_tlsext_use_srtp() returns 0 on success and 1 on error
-		if (SSL_set_tlsext_use_srtp(mSsl, "SRTP_AES128_CM_SHA1_80"))
-			throw std::runtime_error("Failed to set SRTP profile: " +
-			                         openssl::error_string(ERR_get_error()));
 
+		// Try to use GCM suite
+		if (SSL_set_tlsext_use_srtp(mSsl, "SRTP_AES128_CM_SHA1_80:SRTP_AEAD_AES_128_GCM:SRTP_AEAD_AES_256_GCM")!=0) {
+			// RFC 8827: The DTLS-SRTP protection profile SRTP_AES128_CM_HMAC_SHA1_80 MUST be supported
+			// See https://www.rfc-editor.org/rfc/rfc8827.html#section-6.5 Warning:
+			// SSL_set_tlsext_use_srtp() returns 0 on success and 1 on error
+			SSL_set_tlsext_use_srtp(mSsl, "SRTP_AES128_CM_SHA1_80");
+		}
 	} catch (...) {
 		if (mSsl)
 			SSL_free(mSsl);

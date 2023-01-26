@@ -46,8 +46,8 @@ private:
 	srtp_t mSrtpIn, mSrtpOut;
 
 	std::atomic<bool> mInitDone = false;
-	unsigned char mClientSessionKey[SRTP_AES_ICM_128_KEY_LEN_WSALT];
-	unsigned char mServerSessionKey[SRTP_AES_ICM_128_KEY_LEN_WSALT];
+	unsigned char mClientSessionKey[SRTP_AES_GCM_256_KEY_LEN_WSALT];
+	unsigned char mServerSessionKey[SRTP_AES_GCM_256_KEY_LEN_WSALT];
 	std::mutex sendMutex;
 };
 

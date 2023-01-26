@@ -218,13 +218,33 @@ bool DtlsSrtpTransport::demuxMessage(message_ptr message) {
 	}
 }
 
+enum Suite {
+	AES_CM_128_HMAC_SHA1_80 = 1,
+	AES_CM_128_HMAC_SHA1_32 = 2,
+	AEAD_AES_128_GCM	= 7,
+	AEAD_AES_256_GCM	= 8,
+	UNKNOWN_SUITE		= 0
+};
+
+static Suite SuiteFromName(const char* suite) {
+	if (strcmp(suite,"SRTP_AES128_CM_SHA1_80")==0)
+		return AES_CM_128_HMAC_SHA1_80;
+	else if (strcmp(suite,"SRTP_AES128_CM_SHA1_32")==0)
+		return AES_CM_128_HMAC_SHA1_32;
+	else if (strcmp(suite,"SRTP_AEAD_AES_128_GCM")==0)
+		return AEAD_AES_128_GCM;
+	else if (strcmp(suite,"SRTP_AEAD_AES_256_GCM")==0)
+		return AEAD_AES_256_GCM;
+	return UNKNOWN_SUITE;
+}
+
 void DtlsSrtpTransport::postHandshake() {
 	if (mInitDone)
 		return;
 
-	static_assert(SRTP_AES_ICM_128_KEY_LEN_WSALT == SRTP_AES_128_KEY_LEN + SRTP_SALT_LEN);
+	static_assert(SRTP_AES_GCM_256_KEY_LEN_WSALT == SRTP_AES_256_KEY_LEN + SRTP_AEAD_SALT_LEN);
 
-	const size_t materialLen = SRTP_AES_ICM_128_KEY_LEN_WSALT * 2;
+	const size_t materialLen = SRTP_AES_ICM_256_KEY_LEN_WSALT * 2;
 	unsigned char material[materialLen];
 	const unsigned char *clientKey, *clientSalt, *serverKey, *serverSalt;
 
@@ -236,12 +256,12 @@ void DtlsSrtpTransport::postHandshake() {
 	                                   &clientSaltDatum, &serverKeyDatum, &serverSaltDatum),
 	              "Failed to derive SRTP keys");
 
-	if (clientKeyDatum.size != SRTP_AES_128_KEY_LEN)
+	if (clientKeyDatum.size != SRTP_AES_256_KEY_LEN)
 		throw std::logic_error("Unexpected SRTP master key length: " +
 		                       to_string(clientKeyDatum.size));
 	if (clientSaltDatum.size != SRTP_SALT_LEN)
 		throw std::logic_error("Unexpected SRTP salt length: " + to_string(clientSaltDatum.size));
-	if (serverKeyDatum.size != SRTP_AES_128_KEY_LEN)
+	if (serverKeyDatum.size != SRTP_AES_256_KEY_LEN)
 		throw std::logic_error("Unexpected SRTP master key length: " +
 		                       to_string(serverKeyDatum.size));
 	if (serverSaltDatum.size != SRTP_SALT_LEN)
@@ -267,22 +287,33 @@ void DtlsSrtpTransport::postHandshake() {
 
 	// Order is client key, server key, client salt, and server salt
 	clientKey = material;
-	serverKey = clientKey + SRTP_AES_128_KEY_LEN;
-	clientSalt = serverKey + SRTP_AES_128_KEY_LEN;
-	serverSalt = clientSalt + SRTP_SALT_LEN;
+	serverKey = clientKey + SRTP_AES_256_KEY_LEN;
+	clientSalt = serverKey + SRTP_AES_256_KEY_LEN;
+	serverSalt = clientSalt + SRTP_AEAD_SALT_LEN;
 #endif
+	//Get negotiated srtp profile
+	auto profile = SSL_get_selected_srtp_profile(mSsl);
+	if (!profile) {
+		throw std::runtime_error("Failed to get SRTP profile");
+    }
+	PLOG_INFO << "srtp profile is " << profile->name;
+	Suite suite = SuiteFromName(profile->name);
+	if (suite==UNKNOWN_SUITE) {
+		throw std::runtime_error(std::string("Unknown SRTP suite: ") + profile->name);
+	}
+	// TODO set sizes and encryption by suite
+	std::memcpy(mClientSessionKey, clientKey, SRTP_AES_256_KEY_LEN);
+	std::memcpy(mClientSessionKey + SRTP_AES_256_KEY_LEN, clientSalt, SRTP_AEAD_SALT_LEN);
 
-	std::memcpy(mClientSessionKey, clientKey, SRTP_AES_128_KEY_LEN);
-	std::memcpy(mClientSessionKey + SRTP_AES_128_KEY_LEN, clientSalt, SRTP_SALT_LEN);
-
-	std::memcpy(mServerSessionKey, serverKey, SRTP_AES_128_KEY_LEN);
-	std::memcpy(mServerSessionKey + SRTP_AES_128_KEY_LEN, serverSalt, SRTP_SALT_LEN);
+	std::memcpy(mServerSessionKey, serverKey, SRTP_AES_256_KEY_LEN);
+	std::memcpy(mServerSessionKey + SRTP_AES_256_KEY_LEN, serverSalt, SRTP_AEAD_SALT_LEN);
 
 	srtp_policy_t inbound = {};
-	srtp_crypto_policy_set_aes_cm_128_hmac_sha1_80(&inbound.rtp);
-	srtp_crypto_policy_set_aes_cm_128_hmac_sha1_80(&inbound.rtcp);
+	srtp_crypto_policy_set_aes_gcm_256_8_auth(&inbound.rtp);
+	srtp_crypto_policy_set_aes_gcm_256_8_auth(&inbound.rtcp);
 	inbound.ssrc.type = ssrc_any_inbound;
 	inbound.key = mIsClient ? mServerSessionKey : mClientSessionKey;
+
 	inbound.window_size = 1024;
 	inbound.allow_repeat_tx = true;
 	inbound.next = nullptr;
@@ -292,8 +323,8 @@ void DtlsSrtpTransport::postHandshake() {
 		                         to_string(static_cast<int>(err)));
 
 	srtp_policy_t outbound = {};
-	srtp_crypto_policy_set_aes_cm_128_hmac_sha1_80(&outbound.rtp);
-	srtp_crypto_policy_set_aes_cm_128_hmac_sha1_80(&outbound.rtcp);
+	srtp_crypto_policy_set_aes_gcm_256_8_auth(&outbound.rtp);
+	srtp_crypto_policy_set_aes_gcm_256_8_auth(&outbound.rtcp);
 	outbound.ssrc.type = ssrc_any_outbound;
 	outbound.key = mIsClient ? mClientSessionKey : mServerSessionKey;
 	outbound.window_size = 1024;
