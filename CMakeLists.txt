@@ -65,7 +65,9 @@ set(LIBDATACHANNEL_SOURCES
 	${CMAKE_CURRENT_SOURCE_DIR}/src/mediahandlerrootelement.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/rtcpnackresponder.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/rtp.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/fecrtpcreator.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/capi.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/fecinternal.cpp
 )
 
 set(LIBDATACHANNEL_HEADERS
@@ -78,6 +80,7 @@ set(LIBDATACHANNEL_HEADERS
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/rtcpreceivingsession.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/common.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/global.hpp
+	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/fecrtpcreator.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/message.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/peerconnection.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/reliability.hpp
@@ -100,6 +103,8 @@ set(LIBDATACHANNEL_HEADERS
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/mediahandlerrootelement.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/rtcpnackresponder.hpp
 	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/utils.hpp
+	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/byte_io.hpp
+	${CMAKE_CURRENT_SOURCE_DIR}/include/rtc/fecinternal.hpp
 )
 
 set(LIBDATACHANNEL_IMPL_SOURCES

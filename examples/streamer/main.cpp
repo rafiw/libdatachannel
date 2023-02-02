@@ -15,10 +15,11 @@
 
 #include "nlohmann/json.hpp"
 
-#include "h264fileparser.hpp"
-#include "opusfileparser.hpp"
-#include "helpers.hpp"
 #include "ArgParser.hpp"
+#include "h264fileparser.hpp"
+#include "helpers.hpp"
+#include "opusfileparser.hpp"
+#include "rtc/fecrtpcreator.hpp"
 
 using namespace rtc;
 using namespace std;
@@ -70,6 +71,7 @@ const string defaultIPAddress = "127.0.0.1";
 const uint16_t defaultPort = 8000;
 string ip_address = defaultIPAddress;
 uint16_t port = defaultPort;
+float fecPercentage = 0;
 
 /// Incomming message handler for websocket
 /// @param message Incommint message
@@ -102,7 +104,7 @@ int main(int argc, char **argv) try {
     bool enableDebugLogs = false;
     bool printHelp = false;
     int c = 0;
-    auto parser = ArgParser({{"a", "audio"}, {"b", "video"}, {"d", "ip"}, {"p","port"}}, {{"h", "help"}, {"v", "verbose"}});
+    auto parser = ArgParser({{"a", "audio"}, {"b", "video"}, {"d", "ip"}, {"p","port"}, {"f", "fecPercentage"}}, {{"h", "help"}, {"v", "verbose"}});
     auto parsingResult = parser.parse(argc, argv, [](string key, string value) {
         if (key == "audio") {
             opusSamplesDirectory = value + "/";
@@ -112,6 +114,8 @@ int main(int argc, char **argv) try {
             ip_address = value;
         } else if (key == "port") {
             port = atoi(value.data());
+        } else if (key == "fecPercentage") {
+            fecPercentage = stof(value.data());
         } else {
             cerr << "Invalid option --" << key << " with value " << value << endl;
             return false;
@@ -139,6 +143,7 @@ int main(int argc, char **argv) try {
         << "\t -b " << "Directory with H264 samples (default: " << defaultH264SamplesDirectory << ")." << endl
         << "\t -d " << "Signaling server IP address (default: " << defaultIPAddress << ")." << endl
         << "\t -p " << "Signaling server port (default: " << defaultPort << ")." << endl
+        << "\t -f " << "Fec percentage." << endl
         << "\t -v " << "Enable debug logs." << endl
         << "\t -h " << "Print this help and exit." << endl;
         return 0;
@@ -213,12 +218,15 @@ shared_ptr<ClientTrackData> addVideo(const shared_ptr<PeerConnection> pc, const 
     auto packetizer = make_shared<H264RtpPacketizer>(H264RtpPacketizer::Separator::Length, rtpConfig);
     // create H264 handler
     auto h264Handler = make_shared<H264PacketizationHandler>(packetizer);
+    // add RTCP NACK handler
+    if (fecPercentage > 0) {
+        std::cout << "Running with Fec percentage:" << fecPercentage << std::endl;
+        auto fec = make_shared<FecRtpCreator>(0x1234, fecPercentage);
+        h264Handler->addToChain(fec);
+    }
     // add RTCP SR handler
     auto srReporter = make_shared<RtcpSrReporter>(rtpConfig);
     h264Handler->addToChain(srReporter);
-    // add RTCP NACK handler
-    auto nackResponder = make_shared<RtcpNackResponder>();
-    h264Handler->addToChain(nackResponder);
     // set handler
     track->setMediaHandler(h264Handler);
     track->onOpen(onOpen);
@@ -314,7 +322,7 @@ shared_ptr<Client> createPeerConnection(const Configuration &config,
     });
 
     dc->onMessage(nullptr, [id, wdc = make_weak_ptr(dc)](string msg) {
-        cout << "Message from " << id << " received: " << msg << endl;
+        // cout << "Message from " << id << " received: " << msg << endl;
         if (auto dc = wdc.lock()) {
             dc->send("Ping");
         }
@@ -370,8 +378,7 @@ shared_ptr<Stream> createStream(const string h264Samples, const unsigned fps, co
                 if (rtpConfig->timestampToSeconds(reportElapsedTimestamp) > 1) {
                     trackData->sender->setNeedsToReport();
                 }
-
-                cout << "Sending " << streamType << " sample with size: " << to_string(sample.size()) << " to " << client << endl;
+                //cout << "Sending " << streamType << " sample with size: " << to_string(sample.size()) << " to " << client << endl;
                 try {
                     // send sample
                     trackData->track->send(sample);
